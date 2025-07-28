@@ -1,0 +1,107 @@
+name: "Critical Lab Alert"
+version: "1.0.0"
+description: "Alert care team when critical lab values are detected"
+enabled: true
+
+triggers:
+  - type: "lab_result_received"
+    conditions:
+      - field: "test_type"
+        operator: "equals"
+        value: "troponin"
+      - field: "value"
+        operator: "greater_than"
+        value: 0.04
+      - field: "status"
+        operator: "equals"
+        value: "final"
+
+actions:
+  # Immediate notification to cardiology
+  - type: "notify_doctor"
+    params:
+      urgency: "high"
+      message: "🚨 CRITICAL: Troponin I elevated at {{value}} ng/mL (ref: <0.04). Patient {{patient_name}} (MRN: {{patient_mrn}})"
+      recipients: ["on_call_cardiologist", "attending_physician"]
+      channels: ["pager", "mobile_app", "sms"]
+    delay: 0
+
+  # Alert nursing staff
+  - type: "notify_nurse"
+    params:
+      urgency: "high"
+      message: "Critical troponin result for {{patient_name}} - {{value}} ng/mL. Cardiology notified."
+      ward: "{{patient_location}}"
+    delay: 1000  # 1 second after doctor notification
+
+  # Automatically initiate acute MI care protocol
+  - type: "create_care_plan"
+    params:
+      template: "acute_mi_protocol"
+      title: "Acute MI Protocol - Elevated Troponin"
+      auto_schedule: true
+      priority: "urgent"
+      goals:
+        - "Stabilize cardiac function within 2 hours"
+        - "Prevent further myocardial damage"
+        - "Monitor for complications"
+    delay: 2000
+
+  # Schedule follow-up ECG
+  - type: "create_task"
+    params:
+      title: "Urgent 12-lead ECG"
+      description: "Obtain ECG within 15 minutes due to elevated troponin"
+      assigned_to: "bedside_nurse"
+      priority: "urgent"
+      due_date: "{{timestamp_plus_15_minutes}}"
+    delay: 3000
+
+  # Log critical event for quality review
+  - type: "log_event"
+    params:
+      category: "critical_lab_value"
+      severity: "high"
+      message: "Critical troponin level detected and acute MI protocol initiated"
+      details:
+        test_type: "{{test_type}}"
+        value: "{{value}}"
+        reference_range: "<0.04 ng/mL"
+        time_to_notification: "{{execution_duration}}ms"
+        patient_id: "{{patient_id}}"
+        ordering_physician: "{{ordered_by}}"
+    delay: 4000
+
+  # Send structured alert to EMR system
+  - type: "api_call"
+    params:
+      url: "{{emr_base_url}}/alerts"
+      method: "POST"
+      headers:
+        Authorization: "Bearer {{emr_api_token}}"
+        Content-Type: "application/json"
+      body:
+        alert_type: "critical_lab_value"
+        patient_id: "{{patient_id}}"
+        test_code: "33747-0"  # LOINC code for Troponin I
+        value: "{{value}}"
+        unit: "ng/mL"
+        severity: "critical"
+        actions_taken: ["cardiology_notified", "care_plan_initiated"]
+        timestamp: "{{timestamp}}"
+    delay: 5000
+
+metadata:
+  category: "laboratory"
+  priority: "critical"
+  clinical_area: "cardiology"
+  estimated_execution_time: 6000  # 6 seconds
+  compliance_flags: ["joint_commission", "cms_core_measures"]
+  version_history:
+    - version: "1.0.0"
+      date: "2024-01-01"
+      changes: "Initial implementation with MI protocol"
+  approval:
+    medical_director: "Dr. Sarah Johnson"
+    date_approved: "2024-01-01"
+    next_review: "2024-07-01" 

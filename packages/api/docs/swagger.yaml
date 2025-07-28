@@ -1,0 +1,623 @@
+openapi: 3.0.3
+info:
+  title: Clinical FIRE API
+  description: Fast Interoperable Rules Engine for healthcare workflows
+  version: 1.0.0
+  contact:
+    name: Clinical FIRE Team
+    email: berkdurmus@yahoo.com
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: http://localhost:3001/api
+    description: Development server
+  - url: https://api.clinical-fire.com/api
+    description: Production server
+
+paths:
+  /health:
+    get:
+      tags:
+        - Health
+      summary: Basic health check
+      description: Returns basic health status of the API
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+
+  /health/detailed:
+    get:
+      tags:
+        - Health
+      summary: Detailed health check
+      description: Returns detailed health status including service dependencies
+      responses:
+        '200':
+          description: Detailed health information
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+
+  /auth/login:
+    post:
+      tags:
+        - Authentication
+      summary: User login
+      description: Authenticate user and return JWT token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                  format: email
+                  example: admin@example.com
+                password:
+                  type: string
+                  example: password
+              required:
+                - email
+                - password
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /auth/register:
+    post:
+      tags:
+        - Authentication
+      summary: Register new user
+      description: Create a new user account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: User created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /workflows:
+    get:
+      tags:
+        - Workflows
+      summary: List workflows
+      description: Get a paginated list of workflows
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          description: Page number
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: limit
+          in: query
+          description: Number of items per page
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: search
+          in: query
+          description: Search term for workflow name or description
+          schema:
+            type: string
+        - name: enabled
+          in: query
+          description: Filter by enabled status
+          schema:
+            type: boolean
+      responses:
+        '200':
+          description: List of workflows
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowListResponse'
+
+    post:
+      tags:
+        - Workflows
+      summary: Create workflow
+      description: Create a new workflow
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkflowRequest'
+      responses:
+        '201':
+          description: Workflow created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowResponse'
+        '400':
+          description: Invalid workflow definition
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /workflows/{id}:
+    get:
+      tags:
+        - Workflows
+      summary: Get workflow
+      description: Get a specific workflow by ID
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Workflow ID
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Workflow details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowResponse'
+        '404':
+          description: Workflow not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    put:
+      tags:
+        - Workflows
+      summary: Update workflow
+      description: Update an existing workflow
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Workflow ID
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkflowRequest'
+      responses:
+        '200':
+          description: Workflow updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowResponse'
+
+    delete:
+      tags:
+        - Workflows
+      summary: Delete workflow
+      description: Delete a workflow
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Workflow ID
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Workflow deleted successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /executions:
+    post:
+      tags:
+        - Executions
+      summary: Execute workflow
+      description: Trigger a workflow execution
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExecutionRequest'
+      responses:
+        '200':
+          description: Workflow executed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExecutionResponse'
+
+    get:
+      tags:
+        - Executions
+      summary: List executions
+      description: Get a list of workflow executions
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: workflowId
+          in: query
+          description: Filter by workflow ID
+          schema:
+            type: string
+        - name: status
+          in: query
+          description: Filter by execution status
+          schema:
+            type: string
+            enum: [success, failed, running]
+      responses:
+        '200':
+          description: List of executions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExecutionListResponse'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    HealthResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            status:
+              type: string
+              example: healthy
+            uptime:
+              type: number
+            version:
+              type: string
+        timestamp:
+          type: string
+          format: date-time
+
+    AuthResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            token:
+              type: string
+            user:
+              $ref: '#/components/schemas/User'
+        timestamp:
+          type: string
+          format: date-time
+
+    RegisterRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 6
+        firstName:
+          type: string
+        lastName:
+          type: string
+        role:
+          type: string
+          enum: [admin, doctor, nurse, technician, viewer]
+      required:
+        - email
+        - password
+        - firstName
+        - lastName
+        - role
+
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+        email:
+          type: string
+          format: email
+        firstName:
+          type: string
+        lastName:
+          type: string
+        role:
+          type: string
+        isActive:
+          type: boolean
+
+    UserResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          $ref: '#/components/schemas/User'
+        timestamp:
+          type: string
+          format: date-time
+
+    Workflow:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        version:
+          type: string
+        description:
+          type: string
+        enabled:
+          type: boolean
+        triggers:
+          type: array
+          items:
+            $ref: '#/components/schemas/Trigger'
+        actions:
+          type: array
+          items:
+            $ref: '#/components/schemas/Action'
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    Trigger:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [lab_result_received, vital_signs_updated, form_submitted, appointment_scheduled, medication_prescribed, patient_admitted, patient_discharged, alert_created, time_based, manual_trigger]
+        conditions:
+          type: array
+          items:
+            $ref: '#/components/schemas/Condition'
+
+    Condition:
+      type: object
+      properties:
+        field:
+          type: string
+        operator:
+          type: string
+          enum: [equals, not_equals, greater_than, less_than, greater_than_or_equal, less_than_or_equal, contains, not_contains, starts_with, ends_with, in, not_in, regex, exists, not_exists]
+        value:
+          oneOf:
+            - type: string
+            - type: number
+            - type: boolean
+            - type: array
+
+    Action:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [notify_doctor, notify_nurse, notify_patient, create_care_plan, schedule_appointment, send_email, send_sms, create_task, update_record, log_event, webhook, api_call]
+        params:
+          type: object
+        conditions:
+          type: array
+          items:
+            $ref: '#/components/schemas/Condition'
+        delay:
+          type: number
+
+    WorkflowRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        version:
+          type: string
+        description:
+          type: string
+        enabled:
+          type: boolean
+        triggers:
+          type: array
+          items:
+            $ref: '#/components/schemas/Trigger'
+        actions:
+          type: array
+          items:
+            $ref: '#/components/schemas/Action'
+      required:
+        - name
+        - version
+        - triggers
+        - actions
+
+    WorkflowResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          $ref: '#/components/schemas/Workflow'
+        timestamp:
+          type: string
+          format: date-time
+
+    WorkflowListResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Workflow'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+        timestamp:
+          type: string
+          format: date-time
+
+    Pagination:
+      type: object
+      properties:
+        page:
+          type: integer
+        limit:
+          type: integer
+        total:
+          type: integer
+        totalPages:
+          type: integer
+
+    ExecutionRequest:
+      type: object
+      properties:
+        workflowId:
+          type: string
+        data:
+          type: object
+        triggeredBy:
+          type: string
+        patientId:
+          type: string
+        userId:
+          type: string
+      required:
+        - workflowId
+        - data
+
+    ExecutionResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          $ref: '#/components/schemas/ExecutionResult'
+        timestamp:
+          type: string
+          format: date-time
+
+    ExecutionResult:
+      type: object
+      properties:
+        success:
+          type: boolean
+        actionResults:
+          type: array
+          items:
+            $ref: '#/components/schemas/ActionResult'
+        duration:
+          type: number
+        error:
+          type: string
+
+    ActionResult:
+      type: object
+      properties:
+        actionType:
+          type: string
+        success:
+          type: boolean
+        result:
+          type: object
+        error:
+          type: string
+        duration:
+          type: number
+
+    ExecutionListResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: array
+          items:
+            type: object
+        timestamp:
+          type: string
+          format: date-time
+
+    ErrorResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+
+    SuccessResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        timestamp:
+          type: string
+          format: date-time 

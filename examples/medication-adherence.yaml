@@ -1,0 +1,201 @@
+name: "Medication Adherence Monitor"
+version: "1.2.0"
+description: "Monitor patient medication adherence and provide interventions"
+enabled: true
+
+triggers:
+  - type: "time_based"
+    conditions:
+      - field: "schedule"
+        operator: "equals"
+        value: "daily_morning"
+      - field: "patient_enrollment"
+        operator: "equals"
+        value: "medication_adherence_program"
+    metadata:
+      cron: "0 8 * * *"  # Daily at 8 AM
+      timezone: "America/New_York"
+
+actions:
+  # Check medication refill status
+  - type: "api_call"
+    params:
+      url: "{{pharmacy_api_url}}/patients/{{patient_id}}/medications/active"
+      method: "GET"
+      headers:
+        Authorization: "Bearer {{pharmacy_api_token}}"
+        X-Client-ID: "clinical-fire"
+      timeout: 5000
+    delay: 0
+
+  # Query EMR for recent medication administration
+  - type: "api_call"
+    params:
+      url: "{{emr_base_url}}/patients/{{patient_id}}/medication-administrations"
+      method: "GET"
+      headers:
+        Authorization: "Bearer {{emr_api_token}}"
+      query_params:
+        start_date: "{{yesterday}}"
+        end_date: "{{today}}"
+        status: "completed"
+    delay: 1000
+
+  # Send reminder if medication not taken
+  - type: "notify_patient"
+    conditions:
+      - field: "last_administration"
+        operator: "greater_than"
+        value: "24_hours_ago"
+      - field: "medication_critical"
+        operator: "equals"
+        value: true
+    params:
+      message: "📋 Medication Reminder: It's time to take your {{medication_name}}. Taking your medication as prescribed helps ensure the best health outcomes."
+      channel: "mobile_app"
+      backup_channels: ["sms", "email"]
+      include_medication_image: true
+      reminder_tone: "gentle"
+    delay: 2000
+
+  # Schedule pharmacy consultation for non-adherent patients
+  - type: "schedule_appointment"
+    conditions:
+      - field: "adherence_rate_7_days"
+        operator: "less_than"
+        value: 0.7  # Less than 70% adherence
+      - field: "last_pharmacist_consultation"
+        operator: "greater_than"
+        value: "30_days_ago"
+    params:
+      appointment_type: "pharmacist_consultation"
+      duration_minutes: 30
+      purpose: "Medication adherence counseling"
+      provider_type: "clinical_pharmacist"
+      preferred_time: "{{patient_preferred_time}}"
+      notes: "Patient showing low adherence to {{medication_name}} - {{adherence_rate_7_days}}% over last 7 days"
+    delay: 3000
+
+  # Alert care team for critical medication non-adherence
+  - type: "notify_doctor"
+    conditions:
+      - field: "medication_class"
+        operator: "in"
+        value: ["anticoagulant", "insulin", "immunosuppressant"]
+      - field: "missed_doses_72h"
+        operator: "greater_than"
+        value: 2
+    params:
+      urgency: "medium"
+      message: "⚠️ Patient {{patient_name}} has missed {{missed_doses_72h}} doses of {{medication_name}} in the last 72 hours. This is a critical medication requiring immediate intervention."
+      recipients: ["primary_care_physician", "care_coordinator"]
+      include_patient_contact: true
+    delay: 4000
+
+  # Create medication adherence task for care coordinator
+  - type: "create_task"
+    conditions:
+      - field: "adherence_trend"
+        operator: "equals"
+        value: "declining"
+    params:
+      title: "Medication Adherence Intervention - {{patient_name}}"
+      description: "Patient adherence rate has declined to {{current_adherence_rate}}%. Previous rate: {{previous_adherence_rate}}%. Requires intervention."
+      assigned_to: "care_coordinator"
+      priority: "high"
+      due_date: "{{today_plus_2_days}}"
+      category: "medication_management"
+      patient_id: "{{patient_id}}"
+      medication_details:
+        name: "{{medication_name}}"
+        dosage: "{{medication_dosage}}"
+        frequency: "{{medication_frequency}}"
+        start_date: "{{medication_start_date}}"
+    delay: 5000
+
+  # Update patient adherence score in EMR
+  - type: "update_record"
+    params:
+      record_type: "patient_assessment"
+      record_id: "{{patient_id}}"
+      updates:
+        medication_adherence_score: "{{calculated_adherence_score}}"
+        last_adherence_check: "{{timestamp}}"
+        adherence_trend: "{{adherence_trend}}"
+        intervention_required: "{{intervention_flag}}"
+        next_review_date: "{{next_review_date}}"
+    delay: 6000
+
+  # Log adherence data for analytics
+  - type: "log_event"
+    params:
+      category: "medication_adherence"
+      severity: "info"
+      message: "Daily medication adherence check completed"
+      details:
+        patient_id: "{{patient_id}}"
+        medications_checked: "{{medication_count}}"
+        overall_adherence_rate: "{{calculated_adherence_score}}"
+        adherence_trend: "{{adherence_trend}}"
+        interventions_triggered: "{{intervention_count}}"
+        execution_time: "{{execution_duration}}ms"
+    delay: 7000
+
+  # Send weekly adherence report to patient
+  - type: "send_email"
+    conditions:
+      - field: "day_of_week"
+        operator: "equals"
+        value: "monday"
+      - field: "patient_email_preferences"
+        operator: "contains"
+        value: "weekly_reports"
+    params:
+      to: "{{patient_email}}"
+      subject: "Your Weekly Medication Adherence Report"
+      template: "weekly_adherence_report"
+      attachments:
+        - type: "adherence_chart"
+          period: "last_7_days"
+        - type: "medication_schedule"
+          format: "pdf"
+      personalization:
+        patient_name: "{{patient_first_name}}"
+        adherence_percentage: "{{weekly_adherence_rate}}"
+        improvement_tips: "{{adherence_recommendations}}"
+    delay: 8000
+
+metadata:
+  category: "medication_management"
+  priority: "medium"
+  clinical_area: "pharmacy"
+  target_population: "chronic_disease_patients"
+  evidence_level: "Grade_A"
+  estimated_execution_time: 9000  # 9 seconds
+  compliance_flags: ["cms_stars", "hedis_measures"]
+  cost_savings_estimate: "$150_per_patient_per_year"
+  
+  quality_measures:
+    - measure: "Medication Adherence for Diabetes Medications"
+      code: "PQA_01"
+    - measure: "Medication Adherence for Hypertension"  
+      code: "PQA_02"
+    - measure: "Medication Adherence for Cholesterol"
+      code: "PQA_03"
+
+  version_history:
+    - version: "1.0.0"
+      date: "2024-01-01"
+      changes: "Initial implementation"
+    - version: "1.1.0"
+      date: "2024-02-15"
+      changes: "Added pharmacy consultation scheduling"
+    - version: "1.2.0"
+      date: "2024-03-01"
+      changes: "Enhanced patient notifications and weekly reporting"
+
+  approval:
+    clinical_pharmacist: "Dr. Michael Chen, PharmD"
+    medical_director: "Dr. Sarah Johnson, MD"
+    date_approved: "2024-03-01"
+    next_review: "2024-09-01" 

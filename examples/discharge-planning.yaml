@@ -1,0 +1,296 @@
+name: "Automated Discharge Planning"
+version: "2.1.0"
+description: "Streamline discharge process and ensure comprehensive follow-up care coordination"
+enabled: true
+
+triggers:
+  - type: "patient_discharged"
+    conditions:
+      - field: "discharge_disposition"
+        operator: "in"
+        value: ["home", "home_with_services", "skilled_nursing"]
+      - field: "length_of_stay"
+        operator: "greater_than"
+        value: 24  # Hours
+    metadata:
+      source: "adt_feed"
+      priority: "high"
+
+actions:
+  # Generate comprehensive discharge summary
+  - type: "create_care_plan"
+    params:
+      template: "discharge_summary_template"
+      title: "Discharge Care Plan - {{patient_name}}"
+      include_sections:
+        - "diagnosis_summary"
+        - "medications_discharge"
+        - "follow_up_instructions"
+        - "diet_restrictions"
+        - "activity_limitations"
+        - "warning_signs"
+        - "emergency_contacts"
+      auto_populate_data: true
+      require_physician_review: true
+    delay: 0
+
+  # Schedule primary care follow-up
+  - type: "schedule_appointment"
+    conditions:
+      - field: "has_primary_care_physician"
+        operator: "equals"
+        value: true
+    params:
+      appointment_type: "post_discharge_follow_up"
+      provider_id: "{{primary_care_physician_id}}"
+      days_from_discharge: 7
+      duration_minutes: 30
+      purpose: "Post-discharge follow-up and medication review"
+      priority: "routine"
+      patient_instructions: "Please bring all discharge medications and any new symptoms or concerns"
+      insurance_verification_required: true
+    delay: 1000
+
+  # Schedule specialist follow-up if needed
+  - type: "schedule_appointment"
+    conditions:
+      - field: "specialty_follow_up_required"
+        operator: "equals"
+        value: true
+      - field: "primary_diagnosis_category"
+        operator: "in"
+        value: ["cardiology", "endocrinology", "nephrology", "oncology"]
+    params:
+      appointment_type: "specialty_follow_up"
+      provider_specialty: "{{attending_specialty}}"
+      days_from_discharge: 14
+      duration_minutes: 45
+      purpose: "Specialist follow-up for {{primary_diagnosis}}"
+      priority: "urgent"
+      include_discharge_summary: true
+    delay: 2000
+
+  # Arrange home health services
+  - type: "create_task"
+    conditions:
+      - field: "discharge_disposition"
+        operator: "equals"
+        value: "home_with_services"
+      - field: "mobility_score"
+        operator: "less_than"
+        value: 60  # Out of 100
+    params:
+      title: "Arrange Home Health Services - {{patient_name}}"
+      description: "Patient requires home nursing and physical therapy services post-discharge"
+      assigned_to: "discharge_coordinator"
+      priority: "high"
+      due_date: "{{discharge_date}}"
+      services_needed:
+        - "skilled_nursing_visits"
+        - "physical_therapy"
+        - "medication_management"
+      frequency: "3x_weekly_initial"
+      duration: "2_weeks_initial"
+    delay: 3000
+
+  # Send discharge instructions to patient
+  - type: "send_email"
+    conditions:
+      - field: "patient_email"
+        operator: "exists"
+        value: true
+      - field: "communication_preferences"
+        operator: "contains"
+        value: "email"
+    params:
+      to: "{{patient_email}}"
+      cc: "{{emergency_contact_email}}"
+      subject: "Discharge Instructions - {{hospital_name}}"
+      template: "discharge_instructions_comprehensive"
+      attachments:
+        - type: "discharge_summary"
+          format: "pdf"
+        - type: "medication_list"
+          format: "pdf"
+        - type: "appointment_schedule"
+          format: "pdf"
+      personalization:
+        patient_name: "{{patient_first_name}}"
+        discharge_date: "{{discharge_date_formatted}}"
+        follow_up_date: "{{next_appointment_date}}"
+        emergency_number: "{{hospital_emergency_number}}"
+    delay: 4000
+
+  # Alert primary care physician
+  - type: "notify_doctor"
+    conditions:
+      - field: "has_primary_care_physician"
+        operator: "equals"
+        value: true
+    params:
+      urgency: "medium"
+      message: "Patient {{patient_name}} (DOB: {{patient_dob}}) discharged from {{hospital_name}} on {{discharge_date}}. Diagnosis: {{primary_diagnosis}}. Follow-up scheduled for {{follow_up_date}}."
+      recipients: ["{{primary_care_physician_id}}"]
+      channels: ["secure_message", "fax"]
+      include_attachments:
+        - "discharge_summary"
+        - "medication_reconciliation"
+        - "pending_test_results"
+    delay: 5000
+
+  # Create medication reconciliation task
+  - type: "create_task"
+    conditions:
+      - field: "medication_changes_during_stay"
+        operator: "equals"
+        value: true
+    params:
+      title: "Post-Discharge Medication Reconciliation - {{patient_name}}"
+      description: "Review and reconcile medications following hospital discharge. Patient had {{medication_changes_count}} medication changes during stay."
+      assigned_to: "clinical_pharmacist"
+      priority: "high"
+      due_date: "{{today_plus_3_days}}"
+      category: "medication_safety"
+      patient_id: "{{patient_id}}"
+      pre_admission_medications: "{{home_medications_list}}"
+      discharge_medications: "{{discharge_medications_list}}"
+      drug_interactions_check: true
+    delay: 6000
+
+  # Set up remote monitoring if appropriate
+  - type: "api_call"
+    conditions:
+      - field: "chronic_conditions"
+        operator: "contains"
+        value: "heart_failure"
+      - field: "ejection_fraction"
+        operator: "less_than"
+        value: 40
+    params:
+      url: "{{remote_monitoring_api_url}}/patients/{{patient_id}}/enroll"
+      method: "POST"
+      headers:
+        Authorization: "Bearer {{monitoring_api_token}}"
+        Content-Type: "application/json"
+      body:
+        patient_id: "{{patient_id}}"
+        monitoring_type: "heart_failure"
+        devices_needed: ["weight_scale", "blood_pressure_cuff"]
+        monitoring_frequency: "daily"
+        alert_thresholds:
+          weight_gain: "3_lbs_in_2_days"
+          bp_systolic_high: 160
+          bp_diastolic_high: 100
+        monitoring_duration: "30_days"
+        care_team_notifications: true
+    delay: 7000
+
+  # Schedule medication delivery if needed
+  - type: "api_call"
+    conditions:
+      - field: "mobility_limited"
+        operator: "equals"
+        value: true
+      - field: "discharge_medications_count"
+        operator: "greater_than"
+        value: 3
+    params:
+      url: "{{pharmacy_api_url}}/delivery/schedule"
+      method: "POST"
+      headers:
+        Authorization: "Bearer {{pharmacy_api_token}}"
+      body:
+        patient_id: "{{patient_id}}"
+        delivery_address: "{{patient_home_address}}"
+        prescription_list: "{{discharge_prescriptions}}"
+        delivery_date: "{{discharge_date_plus_1}}"
+        delivery_time_preference: "{{patient_preferred_time}}"
+        special_instructions: "Patient recently discharged, may need medication counseling"
+        contact_number: "{{patient_phone}}"
+    delay: 8000
+
+  # Create 30-day readmission prevention task
+  - type: "create_task"
+    conditions:
+      - field: "readmission_risk_score"
+        operator: "greater_than"
+        value: 0.15  # 15% risk threshold
+    params:
+      title: "30-Day Readmission Prevention - {{patient_name}}"
+      description: "High-risk patient for readmission ({{readmission_risk_score}}% risk). Implement enhanced monitoring and support."
+      assigned_to: "care_coordinator"
+      priority: "high"
+      due_date: "{{today_plus_1_day}}"
+      category: "readmission_prevention"
+      risk_factors: "{{readmission_risk_factors}}"
+      interventions_needed:
+        - "weekly_check_in_calls"
+        - "medication_adherence_monitoring"
+        - "symptom_monitoring"
+        - "early_warning_system"
+      target_outcome: "prevent_30_day_readmission"
+    delay: 9000
+
+  # Log discharge metrics for quality improvement
+  - type: "log_event"
+    params:
+      category: "discharge_planning"
+      severity: "info"
+      message: "Automated discharge planning workflow completed successfully"
+      details:
+        patient_id: "{{patient_id}}"
+        length_of_stay: "{{length_of_stay_hours}}"
+        discharge_disposition: "{{discharge_disposition}}"
+        readmission_risk_score: "{{readmission_risk_score}}"
+        follow_up_appointments_scheduled: "{{appointments_scheduled_count}}"
+        home_services_arranged: "{{home_services_flag}}"
+        medication_changes: "{{medication_changes_count}}"
+        execution_time: "{{execution_duration}}ms"
+        workflow_completion_rate: "{{completion_percentage}}"
+    delay: 10000
+
+metadata:
+  category: "discharge_planning"
+  priority: "high"
+  clinical_area: "care_coordination"
+  target_population: "all_discharged_patients"
+  evidence_level: "Grade_B"
+  estimated_execution_time: 11000  # 11 seconds
+  
+  quality_measures:
+    - measure: "30-Day Hospital Readmission Rate"
+      code: "CMS_HWR"
+      target_impact: "15%_reduction"
+    - measure: "Patient Satisfaction with Discharge Process"
+      code: "HCAHPS_Q19"
+      target_score: ">90%"
+    - measure: "Medication Reconciliation Post-Discharge"
+      code: "CMS_MedRec"
+      target_compliance: ">95%"
+
+  compliance_flags: 
+    - "cms_conditions_of_participation"
+    - "joint_commission_npsg"
+    - "meaningful_use_stage3"
+
+  cost_impact:
+    estimated_savings_per_discharge: "$2,500"
+    readmission_prevention_value: "$15,000_per_prevented_readmission"
+    
+  version_history:
+    - version: "1.0.0"
+      date: "2024-01-01"
+      changes: "Initial discharge planning automation"
+    - version: "2.0.0"
+      date: "2024-02-01"
+      changes: "Added remote monitoring and pharmacy delivery"
+    - version: "2.1.0"
+      date: "2024-03-01"
+      changes: "Enhanced readmission prevention and quality metrics"
+
+  approval:
+    case_management_director: "Susan Rodriguez, RN MSN"
+    medical_director: "Dr. Sarah Johnson, MD"
+    quality_director: "Dr. James Park, MD"
+    date_approved: "2024-03-01"
+    next_review: "2024-09-01" 

@@ -1,0 +1,53 @@
+{
+  "name": "clinical-fire",
+  "version": "1.0.0",
+  "description": "Fast Interoperable Rules Engine for healthcare workflows",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build:shared && npm run build:core && npm run build:api && npm run build:web",
+    "build:shared": "npm run build --workspace=@clinical-fire/shared",
+    "build:core": "npm run build --workspace=@clinical-fire/core",
+    "build:api": "npm run build --workspace=@clinical-fire/api",
+    "build:web": "npm run build --workspace=@clinical-fire/web",
+    "dev": "concurrently \"npm run dev --workspace=@clinical-fire/api\" \"npm run dev --workspace=@clinical-fire/web\"",
+    "lint": "npm run lint --workspace=@clinical-fire/shared && npm run lint --workspace=@clinical-fire/core && npm run lint --workspace=@clinical-fire/api && npm run lint --workspace=@clinical-fire/web",
+    "test": "npm run test --workspace=@clinical-fire/core",
+    "clean": "npm run clean --workspace=@clinical-fire/shared && npm run clean --workspace=@clinical-fire/core && npm run clean --workspace=@clinical-fire/api",
+    "type-check": "npm run type-check --workspace=@clinical-fire/shared && npm run type-check --workspace=@clinical-fire/core && npm run type-check --workspace=@clinical-fire/api && npm run type-check --workspace=@clinical-fire/web",
+    "web": "npm run dev --workspace=@clinical-fire/web",
+    "api": "npm run dev --workspace=@clinical-fire/api",
+    "start": "concurrently \"npm run api\" \"npm run web\"",
+    "install:all": "npm install && npm install --workspace=@clinical-fire/shared && npm install --workspace=@clinical-fire/core && npm install --workspace=@clinical-fire/api && npm install --workspace=@clinical-fire/web"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "concurrently": "^8.2.2",
+    "eslint": "^8.56.0",
+    "@typescript-eslint/eslint-plugin": "^6.13.1",
+    "@typescript-eslint/parser": "^6.13.1",
+    "prettier": "^3.1.1",
+    "typescript": "^5.3.3"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/clinical-fire.git"
+  },
+  "keywords": [
+    "healthcare",
+    "workflow",
+    "rules-engine",
+    "clinical",
+    "typescript",
+    "fhir",
+    "hl7"
+  ],
+  "author": "Your Name",
+  "license": "MIT"
+} 
