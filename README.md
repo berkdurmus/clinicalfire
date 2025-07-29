@@ -8,6 +8,13 @@
 
 Clinical FIRE is a modern, TypeScript-based workflow automation platform designed specifically for healthcare environments. It provides a powerful rules engine that enables healthcare organizations to automate clinical workflows, improve patient care coordination, and reduce manual processes.
 
+
+
+
+https://github.com/user-attachments/assets/5fbe2b78-cd9c-4c9b-bdca-fe00f7280298
+
+
+
 ## 🌟 Features
 
 ### 🚀 **Core Capabilities**
