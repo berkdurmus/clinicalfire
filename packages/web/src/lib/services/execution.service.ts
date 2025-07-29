@@ -18,7 +18,9 @@ export const executionService = {
     workflowId?: string;
     status?: string;
   }): Promise<PaginatedResponse<Execution>> {
-    const { data } = await axios.get(`${API_BASE_URL}/api/executions`, { params });
+    const { data } = await axios.get(`${API_BASE_URL}/api/executions`, {
+      params,
+    });
     return data;
   },
 
@@ -30,10 +32,11 @@ export const executionService = {
   async triggerWorkflow(params: {
     workflowId: string;
     data: Record<string, any>;
+    triggeredBy?: string;
     patientId?: string;
     userId?: string;
-  }): Promise<ApiResponse<Execution>> {
-    const { data } = await axios.post(`${API_BASE_URL}/api/executions/trigger`, params);
+  }): Promise<ApiResponse<any>> {
+    const { data } = await axios.post(`${API_BASE_URL}/api/executions`, params);
     return data;
   },
-}; 
+};
