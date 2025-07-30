@@ -1,36 +1,93 @@
-import axios from 'axios';
-import { Workflow, PaginatedResponse, ApiResponse } from '@clinical-fire/shared';
+import { cognitoService } from '@/lib/services/cognito.service';
+import { ENV } from '@/lib/aws.config';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+const API_BASE_URL = ENV.API_URL;
 
-export const workflowService = {
-  async listWorkflows(params: {
-    page: number;
-    limit: number;
+interface Workflow {
+  id?: string;
+  name: string;
+  version: string;
+  enabled?: boolean;
+  triggers: any[];
+  actions: any[];
+  createdBy?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+class WorkflowService {
+  private async makeRequest<T>(
+    endpoint: string,
+    options: RequestInit = {}
+  ): Promise<T> {
+    const url = `${API_BASE_URL}${endpoint}`;
+
+    const response = await fetch(url, {
+      headers: {
+        'Content-Type': 'application/json',
+        ...cognitoService.getAuthorizationHeader(),
+        ...options.headers,
+      },
+      ...options,
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({
+        error: 'Network error',
+        message: `HTTP ${response.status}`,
+      }));
+      throw new Error(error.message || error.error || 'Request failed');
+    }
+
+    return response.json();
+  }
+
+  async listWorkflows(params?: {
+    page?: number;
+    limit?: number;
     search?: string;
     enabled?: boolean;
-  }): Promise<PaginatedResponse<Workflow>> {
-    const { data } = await axios.get(`${API_BASE_URL}/api/workflows`, { params });
-    return data;
-  },
+  }): Promise<any> {
+    const queryParams = new URLSearchParams();
 
-  async getWorkflow(id: string): Promise<ApiResponse<Workflow>> {
-    const { data } = await axios.get(`${API_BASE_URL}/api/workflows/${id}`);
-    return data;
-  },
+    if (params?.page) queryParams.append('page', params.page.toString());
+    if (params?.limit) queryParams.append('limit', params.limit.toString());
+    if (params?.search) queryParams.append('search', params.search);
+    if (params?.enabled !== undefined)
+      queryParams.append('enabled', params.enabled.toString());
 
-  async createWorkflow(workflow: Partial<Workflow>): Promise<ApiResponse<Workflow>> {
-    const { data } = await axios.post(`${API_BASE_URL}/api/workflows`, workflow);
-    return data;
-  },
+    const queryString = queryParams.toString();
+    const endpoint = `/workflows${queryString ? `?${queryString}` : ''}`;
 
-  async updateWorkflow(id: string, workflow: Partial<Workflow>): Promise<ApiResponse<Workflow>> {
-    const { data } = await axios.put(`${API_BASE_URL}/api/workflows/${id}`, workflow);
-    return data;
-  },
+    return this.makeRequest(endpoint);
+  }
 
-  async deleteWorkflow(id: string): Promise<ApiResponse> {
-    const { data } = await axios.delete(`${API_BASE_URL}/api/workflows/${id}`);
-    return data;
-  },
-}; 
+  async getWorkflow(id: string): Promise<any> {
+    return this.makeRequest(`/workflows/${id}`);
+  }
+
+  async createWorkflow(workflowData: Partial<Workflow>): Promise<any> {
+    return this.makeRequest('/workflows', {
+      method: 'POST',
+      body: JSON.stringify(workflowData),
+    });
+  }
+
+  async updateWorkflow(
+    id: string,
+    workflowData: Partial<Workflow>
+  ): Promise<any> {
+    return this.makeRequest(`/workflows/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(workflowData),
+    });
+  }
+
+  async deleteWorkflow(id: string): Promise<any> {
+    return this.makeRequest(`/workflows/${id}`, {
+      method: 'DELETE',
+    });
+  }
+}
+
+export const workflowService = new WorkflowService();
