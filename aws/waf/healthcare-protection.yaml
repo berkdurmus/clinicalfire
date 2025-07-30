@@ -1,0 +1,321 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'AWS WAF protection for Clinical FIRE healthcare API'
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, staging, prod]
+    Description: Environment name
+  
+  ProjectName:
+    Type: String
+    Default: clinical-fire
+    Description: Project name for resource naming
+
+Resources:
+  # =======================
+  # WAF WEB ACL
+  # =======================
+  HealthcareAPIWebACL:
+    Type: AWS::WAFv2::WebACL
+    Properties:
+      Name: !Sub '${ProjectName}-${Environment}-healthcare-api-waf'
+      Description: 'WAF protection for Clinical FIRE healthcare API'
+      Scope: REGIONAL
+      DefaultAction:
+        Allow: {}
+      Rules:
+        # Rate limiting rule
+        - Name: RateLimitRule
+          Priority: 1
+          Statement:
+            RateBasedStatement:
+              Limit: 2000
+              AggregateKeyType: IP
+          Action:
+            Block: {}
+          VisibilityConfig:
+            SampledRequestsEnabled: true
+            CloudWatchMetricsEnabled: true
+            MetricName: !Sub '${ProjectName}-${Environment}-RateLimit'
+
+        # Geographic restriction (healthcare compliance)
+        - Name: GeoRestrictionRule
+          Priority: 2
+          Statement:
+            GeoMatchStatement:
+              CountryCodes:
+                - US  # United States only for HIPAA compliance
+                - CA  # Canada for healthcare partnerships
+          Action:
+            Allow: {}
+          VisibilityConfig:
+            SampledRequestsEnabled: true
+            CloudWatchMetricsEnabled: true
+            MetricName: !Sub '${ProjectName}-${Environment}-GeoRestriction'
+
+        # Block known bad IPs
+        - Name: IPReputationRule
+          Priority: 3
+          Statement:
+            ManagedRuleGroupStatement:
+              VendorName: AWS
+              Name: AWSManagedRulesAmazonIpReputationList
+          OverrideAction:
+            None: {}
+          VisibilityConfig:
+            SampledRequestsEnabled: true
+            CloudWatchMetricsEnabled: true
+            MetricName: !Sub '${ProjectName}-${Environment}-IPReputation'
+
+        # Common attack patterns
+        - Name: CommonAttacksRule
+          Priority: 4
+          Statement:
+            ManagedRuleGroupStatement:
+              VendorName: AWS
+              Name: AWSManagedRulesCommonRuleSet
+              RuleActionOverrides:
+                - Name: SizeRestrictions_BODY
+                  ActionToUse:
+                    Block: {}
+                - Name: GenericRFI_BODY
+                  ActionToUse:
+                    Block: {}
+          OverrideAction:
+            None: {}
+          VisibilityConfig:
+            SampledRequestsEnabled: true
+            CloudWatchMetricsEnabled: true
+            MetricName: !Sub '${ProjectName}-${Environment}-CommonAttacks'
+
+        # SQL injection protection
+        - Name: SQLInjectionRule
+          Priority: 5
+          Statement:
+            ManagedRuleGroupStatement:
+              VendorName: AWS
+              Name: AWSManagedRulesSQLiRuleSet
+          OverrideAction:
+            None: {}
+          VisibilityConfig:
+            SampledRequestsEnabled: true
+            CloudWatchMetricsEnabled: true
+            MetricName: !Sub '${ProjectName}-${Environment}-SQLInjection'
+
+        # Healthcare-specific protection
+        - Name: HealthcareDataProtectionRule
+          Priority: 6
+          Statement:
+            RegexPatternSetReferenceStatement:
+              Arn: !GetAtt PHIPatternSet.Arn
+              FieldToMatch:
+                Body: {}
+              TextTransformations:
+                - Priority: 0
+                  Type: LOWERCASE
+          Action:
+            Block:
+              CustomResponse:
+                ResponseCode: 403
+                CustomResponseBodyKey: PHIBlocked
+          VisibilityConfig:
+            SampledRequestsEnabled: true
+            CloudWatchMetricsEnabled: true
+            MetricName: !Sub '${ProjectName}-${Environment}-PHIProtection'
+
+        # API authentication validation
+        - Name: AuthenticationValidationRule
+          Priority: 7
+          Statement:
+            AndStatement:
+              Statements:
+                - ByteMatchStatement:
+                    FieldToMatch:
+                      UriPath: {}
+                    PositionalConstraint: STARTS_WITH
+                    SearchString: '/api/'
+                    TextTransformations:
+                      - Priority: 0
+                        Type: LOWERCASE
+                - NotStatement:
+                    Statement:
+                      ByteMatchStatement:
+                        FieldToMatch:
+                          SingleHeader:
+                            Name: authorization
+                        PositionalConstraint: STARTS_WITH
+                        SearchString: 'Bearer '
+                        TextTransformations:
+                          - Priority: 0
+                            Type: LOWERCASE
+          Action:
+            Block:
+              CustomResponse:
+                ResponseCode: 401
+                CustomResponseBodyKey: Unauthorized
+          VisibilityConfig:
+            SampledRequestsEnabled: true
+            CloudWatchMetricsEnabled: true
+            MetricName: !Sub '${ProjectName}-${Environment}-AuthValidation'
+
+      CustomResponseBodies:
+        PHIBlocked:
+          ContentType: APPLICATION_JSON
+          Content: '{"error": "Request blocked due to potential PHI exposure", "code": "PHI_PROTECTION_VIOLATION"}'
+        Unauthorized:
+          ContentType: APPLICATION_JSON
+          Content: '{"error": "Authentication required for API access", "code": "AUTHENTICATION_REQUIRED"}'
+
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Purpose
+          Value: Healthcare-API-Protection
+
+  # =======================
+  # REGEX PATTERN SETS
+  # =======================
+  PHIPatternSet:
+    Type: AWS::WAFv2::RegexPatternSet
+    Properties:
+      Name: !Sub '${ProjectName}-${Environment}-phi-patterns'
+      Description: 'Regex patterns to detect PHI data in requests'
+      Scope: REGIONAL
+      RegularExpressionList:
+        # Social Security Numbers
+        - '\b\d{3}-?\d{2}-?\d{4}\b'
+        - '\b\d{9}\b'
+        # Credit Card Numbers
+        - '\b\d{4}[\s-]?\d{4}[\s-]?\d{4}[\s-]?\d{4}\b'
+        # Phone Numbers
+        - '\b\d{3}[\s.-]?\d{3}[\s.-]?\d{4}\b'
+        - '\(\d{3}\)[\s.-]?\d{3}[\s.-]?\d{4}'
+        # Email Addresses (basic pattern)
+        - '\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
+        # Medical Record Numbers (common patterns)
+        - '\bMRN[\s:]?\d+\b'
+        - '\bMR[\s:]?\d+\b'
+        # Patient IDs
+        - '\bPT[\s:]?\d+\b'
+        - '\bPATIENT[\s:]?\d+\b'
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+
+  # =======================
+  # LOGGING CONFIGURATION
+  # =======================
+  WAFLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/wafv2/${ProjectName}-${Environment}-healthcare-api'
+      RetentionInDays: 90
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+
+  WAFLoggingConfiguration:
+    Type: AWS::WAFv2::LoggingConfiguration
+    Properties:
+      ResourceArn: !GetAtt HealthcareAPIWebACL.Arn
+      LogDestinationConfigs:
+        - !GetAtt WAFLogGroup.Arn
+      RedactedFields:
+        - SingleHeader:
+            Name: authorization
+        - SingleHeader:
+            Name: cookie
+        - Body: {}
+
+  # =======================
+  # CLOUDWATCH ALARMS
+  # =======================
+  HighVolumeRequestsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${ProjectName}-${Environment}-HighVolumeRequests'
+      AlarmDescription: 'High volume of requests detected'
+      MetricName: AllowedRequests
+      Namespace: AWS/WAFV2
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 10000
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: WebACL
+          Value: !Sub '${ProjectName}-${Environment}-healthcare-api-waf'
+        - Name: Rule
+          Value: ALL
+        - Name: Region
+          Value: !Ref AWS::Region
+      TreatMissingData: notBreaching
+
+  BlockedRequestsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${ProjectName}-${Environment}-BlockedRequests'
+      AlarmDescription: 'High number of blocked requests'
+      MetricName: BlockedRequests
+      Namespace: AWS/WAFV2
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 100
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: WebACL
+          Value: !Sub '${ProjectName}-${Environment}-healthcare-api-waf'
+        - Name: Rule
+          Value: ALL
+        - Name: Region
+          Value: !Ref AWS::Region
+      TreatMissingData: notBreaching
+
+  PHIViolationAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${ProjectName}-${Environment}-PHIViolation'
+      AlarmDescription: 'PHI exposure attempt detected'
+      MetricName: !Sub '${ProjectName}-${Environment}-PHIProtection'
+      Namespace: AWS/WAFV2
+      Statistic: Sum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: WebACL
+          Value: !Sub '${ProjectName}-${Environment}-healthcare-api-waf'
+        - Name: Rule
+          Value: HealthcareDataProtectionRule
+        - Name: Region
+          Value: !Ref AWS::Region
+      TreatMissingData: notBreaching
+
+Outputs:
+  WebACLArn:
+    Description: 'ARN of the WAF Web ACL'
+    Value: !GetAtt HealthcareAPIWebACL.Arn
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-waf-arn'
+
+  WebACLId:
+    Description: 'ID of the WAF Web ACL'
+    Value: !Ref HealthcareAPIWebACL
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-waf-id'
+
+  LogGroupName:
+    Description: 'CloudWatch Log Group for WAF logs'
+    Value: !Ref WAFLogGroup
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-waf-logs' 

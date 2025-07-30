@@ -1,9 +1,15 @@
 const AWS = require('aws-sdk');
 const { v4: uuidv4 } = require('uuid');
+const { ActionHandlers } = require('./action-handlers');
+const { ConditionEvaluator } = require('./shared/condition-evaluator');
+const { AuditLogger } = require('./shared/audit-logger');
 
 // Initialize AWS services
 const dynamoDB = new AWS.DynamoDB.DocumentClient();
 const sqs = new AWS.SQS();
+const actionHandlers = new ActionHandlers();
+const conditionEvaluator = new ConditionEvaluator();
+const auditLogger = new AuditLogger();
 
 // Environment variables
 const WORKFLOWS_TABLE = process.env.WORKFLOWS_TABLE;
@@ -130,8 +136,8 @@ const executeWorkflow = async (workflow, executionContext) => {
       };
     }
 
-    // Evaluate triggers (simplified)
-    const triggerMatched = evaluateTriggers(workflow, executionContext);
+    // Evaluate triggers with full condition support
+    const triggerMatched = await evaluateTriggers(workflow, executionContext);
     if (!triggerMatched) {
       return {
         success: true,
@@ -162,18 +168,65 @@ const executeWorkflow = async (workflow, executionContext) => {
   }
 };
 
-const evaluateTriggers = (workflow, context) => {
-  // Simplified trigger evaluation
+const evaluateTriggers = async (workflow, context) => {
+  // Enhanced trigger evaluation with condition support
   for (const trigger of workflow.triggers || []) {
-    if (
-      trigger.type === context.triggerType ||
-      trigger.type === 'manual' ||
-      !context.triggerType
-    ) {
+    // Check if trigger type matches the context
+    const triggerTypeMatches = checkTriggerType(trigger.type, context);
+    if (!triggerTypeMatches) {
+      continue;
+    }
+
+    // Evaluate trigger conditions if they exist
+    if (trigger.conditions && trigger.conditions.length > 0) {
+      try {
+        const conditionsMatch = await conditionEvaluator.evaluateConditions(
+          trigger.conditions,
+          context.data
+        );
+        if (conditionsMatch) {
+          console.log(`Trigger matched: ${trigger.type}`, {
+            executionId: context.executionId,
+            triggerType: trigger.type,
+            conditionsCount: trigger.conditions.length,
+          });
+          return true;
+        }
+      } catch (error) {
+        console.error(
+          `Condition evaluation failed for trigger ${trigger.type}:`,
+          error
+        );
+        // Continue to next trigger if condition evaluation fails
+        continue;
+      }
+    } else {
+      // No conditions means trigger always matches if type matches
+      console.log(`Trigger matched (no conditions): ${trigger.type}`, {
+        executionId: context.executionId,
+        triggerType: trigger.type,
+      });
       return true;
     }
   }
+
   return false;
+};
+
+// Helper function to check trigger type matching
+const checkTriggerType = (triggerType, context) => {
+  // Enhanced trigger type matching
+  return (
+    context.triggerType === triggerType ||
+    context.data.triggerType === triggerType ||
+    triggerType === 'manual' ||
+    (triggerType === 'scheduled' && context.triggerType === 'scheduled') ||
+    (triggerType === 'webhook' && context.triggerType === 'webhook') ||
+    (triggerType === 'lab_result' && context.data.type === 'lab_result') ||
+    (triggerType === 'vital_signs' && context.data.type === 'vital_signs') ||
+    (triggerType === 'medication' && context.data.type === 'medication') ||
+    (triggerType === 'alert' && context.data.type === 'alert')
+  );
 };
 
 const executeActions = async (workflow, context) => {
@@ -183,20 +236,46 @@ const executeActions = async (workflow, context) => {
     const actionStartTime = Date.now();
 
     try {
-      // Simulate action execution
-      const result = await simulateAction(action, context);
+      // Check action conditions if they exist
+      if (action.conditions && action.conditions.length > 0) {
+        const conditionsMatch = await conditionEvaluator.evaluateConditions(
+          action.conditions,
+          context.data
+        );
+        if (!conditionsMatch) {
+          console.log(`Action skipped due to conditions: ${action.type}`, {
+            executionId: context.executionId,
+            actionType: action.type,
+            conditionsCount: action.conditions.length,
+          });
+          continue;
+        }
+      }
+
+      // Apply delay if specified
+      if (action.delay && action.delay > 0) {
+        console.log(`Delaying action execution: ${action.delay}ms`, {
+          executionId: context.executionId,
+          actionType: action.type,
+        });
+        await delay(action.delay);
+      }
+
+      // Execute action using real handlers
+      const result = await actionHandlers.executeAction(action, context);
 
       actionResults.push({
         actionType: action.type,
-        success: true,
-        result,
-        duration: Date.now() - actionStartTime,
+        success: result.success,
+        result: result.result,
+        duration: result.duration,
+        ...(result.error && { error: result.error }),
       });
 
-      // Send critical alerts to FIFO queue
+      // Send critical alerts to FIFO queue for additional processing
       if (
         action.type === 'send_alert' &&
-        action.params?.priority === 'CRITICAL'
+        action.params?.priority === 'critical'
       ) {
         await sendCriticalAlert(action, context);
       }
@@ -213,46 +292,10 @@ const executeActions = async (workflow, context) => {
   return actionResults;
 };
 
-const simulateAction = async (action, context) => {
-  // Simulate different action types
-  switch (action.type) {
-    case 'send_email':
-      return {
-        message: 'Email sent successfully',
-        to: action.params?.to || 'healthcare@example.com',
-        subject: action.params?.subject || 'Clinical Alert',
-      };
+// Utility function to add delay
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-    case 'send_alert':
-      return {
-        message: 'Alert sent successfully',
-        priority: action.params?.priority || 'NORMAL',
-        recipients: action.params?.recipients || ['nurse-station'],
-      };
-
-    case 'update_patient_record':
-      return {
-        message: 'Patient record updated',
-        patientId: context.patientId,
-        updates: action.params?.updates || {},
-      };
-
-    case 'schedule_task':
-      return {
-        message: 'Task scheduled successfully',
-        taskType: action.params?.taskType || 'follow-up',
-        scheduledFor:
-          action.params?.scheduledFor ||
-          new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-      };
-
-    default:
-      return {
-        message: `Action ${action.type} executed successfully`,
-        params: action.params,
-      };
-  }
-};
+// Note: simulateAction function removed - now using real ActionHandlers
 
 const sendCriticalAlert = async (action, context) => {
   if (!CRITICAL_ALERTS_QUEUE) return;
@@ -417,6 +460,20 @@ const handleTriggerExecution = async (body, user) => {
 
   // Save execution to DynamoDB
   await putExecution(execution);
+
+  // Create comprehensive audit trail
+  await auditLogger.createWorkflowAuditTrail({
+    workflowId,
+    executionId,
+    userId: user.id,
+    patientId,
+    triggerType,
+    actionResults: result.actionResults,
+    status: execution.status,
+    duration: result.duration,
+    startTime: execution.startTime,
+    endTime: execution.endTime,
+  });
 
   // Send event to workflow queue
   if (WORKFLOW_QUEUE_URL) {

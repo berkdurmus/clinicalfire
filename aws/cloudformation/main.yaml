@@ -242,6 +242,52 @@ Resources:
                 Resource:
                   - !GetAtt WorkflowEventQueue.Arn
                   - !GetAtt CriticalAlertsQueue.Arn
+        - PolicyName: SNSAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sns:Publish
+                  - sns:GetTopicAttributes
+                Resource:
+                  - !Ref CriticalAlertsTopic
+                  - !Ref HighPriorityAlertsTopic
+                  - !Ref NormalAlertsTopic
+        - PolicyName: KMSAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - kms:Encrypt
+                  - kms:Decrypt
+                  - kms:ReEncrypt*
+                  - kms:GenerateDataKey*
+                  - kms:DescribeKey
+                Resource: !GetAtt PHIEncryptionKey.Arn
+        - PolicyName: SESAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ses:SendEmail
+                  - ses:SendRawEmail
+                  - ses:GetSendQuota
+                  - ses:GetSendStatistics
+                Resource: '*'
+        - PolicyName: CloudWatchMetrics
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - cloudwatch:PutMetricData
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: '*'
         - PolicyName: CognitoAccess
           PolicyDocument:
             Version: '2012-10-17'
