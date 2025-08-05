@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   Card,
   CardContent,
@@ -54,6 +55,7 @@ interface RecentExecution {
 }
 
 export default function Dashboard() {
+  const router = useRouter();
   const [stats, setStats] = useState<DashboardStats>({
     totalWorkflows: 0,
     activeWorkflows: 0,
@@ -101,7 +103,7 @@ export default function Dashboard() {
         setStats((prev) => ({
           ...prev,
           totalWorkflows: workflowsResponse.data.length,
-          activeWorkflows: workflowsResponse.data.filter((w) => w.enabled)
+          activeWorkflows: workflowsResponse.data.filter((w: any) => w.enabled)
             .length,
         }));
       }
@@ -225,6 +227,13 @@ export default function Dashboard() {
         <div className="flex gap-3">
           <CreateWorkflowDialog onWorkflowCreated={refreshDashboard} />
           <TriggerWorkflowDialog onExecutionTriggered={refreshDashboard} />
+          <Button
+            onClick={() => router.push('/workflow-designer')}
+            className="bg-purple-600 hover:bg-purple-700 text-white"
+          >
+            <Workflow className="w-4 h-4 mr-2" />
+            Visual Designer
+          </Button>
         </div>
       </div>
 
