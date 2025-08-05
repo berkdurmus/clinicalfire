@@ -30,10 +30,12 @@ const logger = new Logger('info', true);
 
 // Security middleware
 app.use(helmet());
-app.use(cors({
-  origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
-  credentials: true,
-}));
+app.use(
+  cors({
+    origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
+    credentials: true,
+  })
+);
 
 // Rate limiting
 const limiter = rateLimit({
@@ -58,8 +60,8 @@ try {
   app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument));
   logger.info('API documentation available at /api/docs');
 } catch (error) {
-  logger.warn('Swagger documentation not available', { 
-    error: error instanceof Error ? error.message : 'Unknown error' 
+  logger.warn('Swagger documentation not available', {
+    error: error instanceof Error ? error.message : 'Unknown error',
   });
   // Provide a simple fallback documentation endpoint
   app.get('/api/docs', (req, res) => {
@@ -69,20 +71,20 @@ try {
         health: 'GET /api/health',
         auth: {
           login: 'POST /api/auth/login',
-          register: 'POST /api/auth/register'
+          register: 'POST /api/auth/register',
         },
         workflows: {
           list: 'GET /api/workflows',
           create: 'POST /api/workflows',
           get: 'GET /api/workflows/:id',
           update: 'PUT /api/workflows/:id',
-          delete: 'DELETE /api/workflows/:id'
+          delete: 'DELETE /api/workflows/:id',
         },
         executions: {
           trigger: 'POST /api/executions',
-          list: 'GET /api/executions'
-        }
-      }
+          list: 'GET /api/executions',
+        },
+      },
     });
   });
 }
@@ -145,4 +147,4 @@ process.on('SIGINT', () => {
 });
 
 // Start server
-initializeServer(); 
+initializeServer();
